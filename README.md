@@ -11,8 +11,6 @@ The deployment consists of:
 - CouchDB cluster for data replication
 - Local PC backup solution for off-site redundancy
 
-![Architecture Diagram](docs/images/architecture.png)
-
 ## Features
 
 - **High Availability**: No single point of failure, redundant data storage
