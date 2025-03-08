@@ -1,0 +1,195 @@
+version: '3.7'
+
+services:
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:v2.40.0
+    container_name: prometheus
+    restart: unless-stopped
+    volumes:
+      - ./config/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9090:9090"
+    networks:
+      - openedx_network
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:9.3.1
+    container_name: grafana
+    restart: unless-stopped
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./config/monitoring/grafana_datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - openedx_network
+
+  # cAdvisor for container metrics
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.47.0
+    container_name: cadvisor
+    restart: unless-stopped
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    ports:
+      - "8080:8080"
+    networks:
+      - openedx_network
+
+  # Node Exporter for host metrics
+  node-exporter:
+    image: prom/node-exporter:v1.5.0
+    container_name: node-exporter
+    restart: unless-stopped
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc|rootfs/var/lib/docker/containers|rootfs/var/lib/docker/overlay2|rootfs/run/docker/netns|rootfs/var/lib/docker/aufs)($$|/)'
+    ports:
+      - "9100:9100"
+    networks:
+      - openedx_network
+
+  # CouchDB container
+  couchdb:
+    image: couchdb:3.3.2
+    container_name: couchdb
+    restart: unless-stopped
+    ports:
+      - "5984:5984"
+    volumes:
+      - couchdb_data:/opt/couchdb/data
+      - couchdb_config:/opt/couchdb/etc/local.d
+      - ./config/couchdb/local.ini:/opt/couchdb/etc/local.d/local.ini
+    environment:
+      - COUCHDB_USER=${COUCHDB_USER:-admin}
+      - COUCHDB_PASSWORD=${COUCHDB_PASSWORD:-password}
+      - COUCHDB_SECRET=${COUCHDB_SECRET:-openedxsecret}
+      - ERL_FLAGS=-setcookie "${COUCHDB_COOKIE:-monster}"
+    networks:
+      - openedx_network
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  # Open edX LMS container
+  lms:
+    image: overhangio/openedx:14.0.3
+    container_name: lms
+    restart: unless-stopped
+    depends_on:
+      - couchdb
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./config/lms/config.yml:/openedx/config.yml
+      - ./config/lms/cms.env.json:/openedx/config/cms.env.json
+      - ./config/lms/lms.env.json:/openedx/config/lms.env.json
+      - ./config/lms/production.py:/openedx/edx-platform/lms/envs/tutor/production.py
+      - ./storage:/openedx/custom/storage
+    environment:
+      - SERVICE_VARIANT=lms
+      - SETTINGS=tutor.production
+      - COUCHDB_HOST=couchdb
+      - COUCHDB_PORT=5984
+      - COUCHDB_USER=${COUCHDB_USER:-admin}
+      - COUCHDB_PASSWORD=${COUCHDB_PASSWORD:-password}
+      - COUCHDB_DB_NAME=openedx_${VM_INDEX:-1}
+    networks:
+      - openedx_network
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  # Open edX CMS (Studio) container
+  cms:
+    image: overhangio/openedx:14.0.3
+    container_name: cms
+    restart: unless-stopped
+    depends_on:
+      - couchdb
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./config/cms/config.yml:/openedx/config.yml
+      - ./config/cms/cms.env.json:/openedx/config/cms.env.json
+      - ./config/cms/lms.env.json:/openedx/config/lms.env.json
+      - ./config/cms/production.py:/openedx/edx-platform/cms/envs/tutor/production.py
+      - ./storage:/openedx/custom/storage
+    environment:
+      - SERVICE_VARIANT=cms
+      - SETTINGS=tutor.production
+      - COUCHDB_HOST=couchdb
+      - COUCHDB_PORT=5984
+      - COUCHDB_USER=${COUCHDB_USER:-admin}
+      - COUCHDB_PASSWORD=${COUCHDB_PASSWORD:-password}
+      - COUCHDB_DB_NAME=openedx_${VM_INDEX:-1}
+    networks:
+      - openedx_network
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  # Caddy for automatic SSL and reverse proxy
+  caddy:
+    image: caddy:2
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./config/caddy/Caddyfile:/etc/caddy/Caddyfile
+      - ./config/caddy/data:/data
+      - ./config/caddy/config:/config
+      - ./static:/usr/share/nginx/html
+    environment:
+      - DOMAIN_NAME=${DOMAIN_NAME}
+    depends_on:
+      - lms
+      - cms
+    networks:
+      - openedx_network
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  # Watchtower for automatic updates
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --interval 86400 --cleanup --label-enable
+    networks:
+      - openedx_network
+
+networks:
+  openedx_network:
+    driver: bridge
+
+volumes:
+  couchdb_data:
+  couchdb_config:
+  prometheus_data:
+  grafana_data:

@@ -1,0 +1,29 @@
+# Local configurations
+.env
+terraform.tfvars
+
+# State files
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+
+# Log files
+*.log
+
+# SSH keys
+*.pem
+id_rsa
+id_rsa.pub
+
+# Backup files
+backups/
+
+# macOS files
+.DS_Store
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo

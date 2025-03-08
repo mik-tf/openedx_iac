@@ -1,0 +1,51 @@
+{
+    # Global Caddy settings
+    email admin@yourdomain.com  # Replace with your email
+    # Use HTTP challenge
+    acme_http
+}
+
+# Main domain configuration
+{$DOMAIN_NAME} {
+    # Automatic HTTPS
+    tls {
+        # This will automatically obtain certificates
+    }
+    
+    # Health check endpoint
+    handle /health {
+        respond "OK" 200
+    }
+
+    # Proxy to LMS
+    handle {
+        reverse_proxy lms:8000
+    }
+}
+
+# Studio domain configuration
+studio.{$DOMAIN_NAME} {
+    # Automatic HTTPS
+    tls {
+        # This will automatically obtain certificates
+    }
+    
+    # Proxy to CMS
+    reverse_proxy cms:8000
+}
+
+# Grafana access
+monitoring.{$DOMAIN_NAME} {
+    # Automatic HTTPS
+    tls {
+        # This will automatically obtain certificates
+    }
+    
+    # Basic authentication
+    basicauth {
+        admin JDJhJDEwJE1uOEV1OFVUcTVZNUNML1VzWjhPTS4vUEZoWUtzdVVvVnpnS1M2MVhuYnBIVk9xQ2JCUm1h
+    }
+    
+    # Proxy to Grafana
+    reverse_proxy grafana:3000
+}

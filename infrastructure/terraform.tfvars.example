@@ -1,0 +1,72 @@
+domain_name = "yourdomain.com"
+hcloud_token        = "your_hetzner_cloud_api_token"
+ssh_public_key_path = "~/.ssh/id_rsa.pub"
+production_vm_count = 3
+couchdb_user        = "admin"
+couchdb_password    = "your_secure_password"
+```
+
+### `infrastructure/cloud-init-production.yml`
+
+```yaml
+#cloud-config
+package_update: true
+package_upgrade: true
+
+packages:
+  - docker.io
+  - docker-compose
+  - curl
+  - jq
+  - git
+  - ufw
+
+groups:
+  - docker
+
+users:
+  - name: openedx
+    groups: docker
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      - ${file(ssh_public_key_path)}
+
+write_files:
+  - path: /home/openedx/vm_info.env
+    permissions: '0644'
+    content: |
+      VM_INDEX=${vm_index}
+      COUCHDB_USER=${couchdb_user}
+      COUCHDB_PASSWORD=${couchdb_password}
+      INTERNAL_IP=10.0.1.${vm_index + 9}
+      OTHER_NODE_IPS=${join(",", other_node_ips)}
+
+runcmd:
+  # Configure firewall
+  - ufw allow 22/tcp
+  - ufw allow 80/tcp
+  - ufw allow 443/tcp
+  - ufw allow from 10.0.0.0/16 to any port 5984 proto tcp
+  - ufw --force enable
+
+  # Fix Docker permissions
+  - systemctl enable docker
+  - systemctl start docker
+  - usermod -aG docker openedx
+
+  # Clone repository
+  - su - openedx -c "git clone https://github.com/yourusername/openedx-ha.git /home/openedx/openedx-ha"
+
+  # Configure environment
+  - su - openedx -c "cd /home/openedx/openedx-ha && cp .env.example .env"
+  - su - openedx -c "cd /home/openedx/openedx-ha && sed -i 's/COUCHDB_USER=admin/COUCHDB_USER=${couchdb_user}/' .env"
+  - su - openedx -c "cd /home/openedx/openedx-ha && sed -i 's/COUCHDB_PASSWORD=password/COUCHDB_PASSWORD=${couchdb_password}/' .env"
+  - su - openedx -c "cd /home/openedx/openedx-ha && sed -i 's/VM_INDEX=1/VM_INDEX=${vm_index}/' .env"
+
+  # Start containers
+  - su - openedx -c "cd /home/openedx/openedx-ha && docker-compose up -d"
+
+  # Setup health check cron job
+  - su - openedx -c "(crontab -l 2>/dev/null; echo '*/5 * * * * cd /home/openedx/openedx-ha && ./scripts/health-check.sh >> /home/openedx/health-check.log 2>&1') | crontab -"
+
