@@ -27,3 +27,6 @@ backups/
 .idea/
 *.swp
 *.swo
+
+# AI files
+all_files_text.txt

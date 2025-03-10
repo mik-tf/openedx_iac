@@ -72,6 +72,7 @@ See the [detailed deployment guide](docs/deployment.md) for complete instruction
 - [Deployment Guide](docs/deployment.md)
 - [Operations Manual](docs/operations.md)
 - [Backup and Restore](docs/backup.md)
+- [Disaster Recovery](docs/disaster-recovery.md)
 - [Troubleshooting](docs/troubleshooting.md)
 
 ## License
